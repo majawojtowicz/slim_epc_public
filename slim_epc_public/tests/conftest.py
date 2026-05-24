@@ -34,3 +34,16 @@ def client_with_mock_tm(tmp_db):
         mock_tm.is_running.return_value = False
         mock_tm_factory.return_value = mock_tm
         yield TestClient(app), repo, mock_tm
+
+@pytest.fixture()
+def client_with_mock_repo():
+    app = FastAPI()
+    app.include_router(router)
+    mock_repo = MagicMock(spec=EPCRepository)
+    app.dependency_overrides[get_repo] = lambda: mock_repo
+
+    with patch("epc.api.get_traffic_manager") as mock_tm_factory:
+        mock_tm = MagicMock()
+        mock_tm.is_running.return_value = False
+        mock_tm_factory.return_value = mock_tm
+        yield TestClient(app), mock_repo, mock_tm
