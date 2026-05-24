@@ -158,3 +158,37 @@ class TestAPIResponses:
     def test_attach_invalid_body_returns_422(self, client):
         r = client.post("/ues", json={"wrong_field": 123})
         assert r.status_code == 422
+
+
+class TestStartTrafficEdgeCases:
+    def test_throughput_above_100_mbps_rejected(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        r = client.post(
+            "/ues/1/bearers/9/traffic",
+            json={"protocol": "tcp", "Mbps": 500},
+        )
+        assert r.status_code in (400, 422)
+
+    def test_zero_bps_is_rejected_at_traffic_start(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        r = client.post(
+            "/ues/1/bearers/9/traffic",
+            json={"protocol": "tcp", "bps": 0},
+        )
+        assert r.status_code in (400, 422)
+
+
+class TestDetachCleanup:
+    def test_detach_with_active_traffic_cleans_up(self, client_with_mock_tm):
+        client, _repo, mock_tm = client_with_mock_tm
+
+        assert client.post("/ues", json={"ue_id": 1}).status_code == 200
+        assert client.post(
+            "/ues/1/bearers/9/traffic",
+            json={"protocol": "tcp", "Mbps": 1},
+        ).status_code == 200
+        assert mock_tm.start.called
+
+        assert client.delete("/ues/1").status_code == 200
+
+        mock_tm.stop.assert_called_with(1, 9)
