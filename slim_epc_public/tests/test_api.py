@@ -158,3 +158,49 @@ class TestAPIResponses:
     def test_attach_invalid_body_returns_422(self, client):
         r = client.post("/ues", json={"wrong_field": 123})
         assert r.status_code == 422
+
+
+class TestStartTrafficEdgeCases:
+
+    def test_zero_bps_is_rejected_at_traffic_start(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        r = client.post(
+            "/ues/1/bearers/9/traffic",
+            json={"protocol": "tcp", "bps": 0},
+        )
+        assert r.status_code in (400, 422)
+
+
+class TestTrafficScenarios:
+
+    def test_start_traffic_marks_bearer_active(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        client.post("/ues/1/bearers/9/traffic", json={"protocol": "tcp", "Mbps": 1})
+
+        state = client.get("/ues/1").json()
+        assert state["bearers"]["9"]["active"] is True
+
+    def test_stop_traffic_marks_bearer_inactive(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        client.post("/ues/1/bearers/9/traffic", json={"protocol": "tcp", "Mbps": 1})
+
+        r = client.delete("/ues/1/bearers/9/traffic")
+        assert r.status_code == 200
+
+        state = client.get("/ues/1").json()
+        assert state["bearers"]["9"]["active"] is False
+
+    def test_get_traffic_stats_returns_expected_fields(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        client.post("/ues/1/bearers/9/traffic", json={"protocol": "tcp", "Mbps": 1})
+
+        r = client.get("/ues/1/bearers/9/traffic")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ue_id"] == 1
+        assert data["bearer_id"] == 9
+        assert data["protocol"] == "tcp"
+        assert data["target_bps"] == 1_000_000
+        assert "tx_bps" in data
+        assert "rx_bps" in data
+        assert "duration" in data
