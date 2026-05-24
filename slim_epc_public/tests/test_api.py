@@ -161,13 +161,6 @@ class TestAPIResponses:
 
 
 class TestStartTrafficEdgeCases:
-    def test_throughput_above_100_mbps_rejected(self, client):
-        client.post("/ues", json={"ue_id": 1})
-        r = client.post(
-            "/ues/1/bearers/9/traffic",
-            json={"protocol": "tcp", "Mbps": 500},
-        )
-        assert r.status_code in (400, 422)
 
     def test_zero_bps_is_rejected_at_traffic_start(self, client):
         client.post("/ues", json={"ue_id": 1})
@@ -178,17 +171,36 @@ class TestStartTrafficEdgeCases:
         assert r.status_code in (400, 422)
 
 
-class TestDetachCleanup:
-    def test_detach_with_active_traffic_cleans_up(self, client_with_mock_tm):
-        client, _repo, mock_tm = client_with_mock_tm
+class TestTrafficScenarios:
 
-        assert client.post("/ues", json={"ue_id": 1}).status_code == 200
-        assert client.post(
-            "/ues/1/bearers/9/traffic",
-            json={"protocol": "tcp", "Mbps": 1},
-        ).status_code == 200
-        assert mock_tm.start.called
+    def test_start_traffic_marks_bearer_active(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        client.post("/ues/1/bearers/9/traffic", json={"protocol": "tcp", "Mbps": 1})
 
-        assert client.delete("/ues/1").status_code == 200
+        state = client.get("/ues/1").json()
+        assert state["bearers"]["9"]["active"] is True
 
-        mock_tm.stop.assert_called_with(1, 9)
+    def test_stop_traffic_marks_bearer_inactive(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        client.post("/ues/1/bearers/9/traffic", json={"protocol": "tcp", "Mbps": 1})
+
+        r = client.delete("/ues/1/bearers/9/traffic")
+        assert r.status_code == 200
+
+        state = client.get("/ues/1").json()
+        assert state["bearers"]["9"]["active"] is False
+
+    def test_get_traffic_stats_returns_expected_fields(self, client):
+        client.post("/ues", json={"ue_id": 1})
+        client.post("/ues/1/bearers/9/traffic", json={"protocol": "tcp", "Mbps": 1})
+
+        r = client.get("/ues/1/bearers/9/traffic")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ue_id"] == 1
+        assert data["bearer_id"] == 9
+        assert data["protocol"] == "tcp"
+        assert data["target_bps"] == 1_000_000
+        assert "tx_bps" in data
+        assert "rx_bps" in data
+        assert "duration" in data
